@@ -1,20 +1,52 @@
 #!/bin/bash
 
-GENE_NAME="rpoB"
-CONSENSO="rpoB_consensus.fasta"
-GENOMAS="bacillus_genomes.fasta"
-SALIDA="${GENE_NAME}_reference.fasta"
+echo "🔍 BUSCADOR DE AMPLICONES POR IDENTIDAD (70%)"
 
-# Crear base BLAST temporal
-makeblastdb -in "$GENOMAS" -dbtype nucl -out tempdb
+# 1. Pedir inputs al usuario
+read -p "📂 Nombre del archivo FASTA de entrada: " INPUT_FASTA
+read -p "🧬 Nombre del amplicón (gen): " GENE_NAME
+read -p "🧬 Ingresa la secuencia consenso (una sola línea): " CONSENSO
 
-# Ejecutar blastn local y guardar hits con ≥70% identidad
-blastn -query "$CONSENSO" -db tempdb -outfmt "6 sseqid sstart send pident length" -perc_identity 70 -max_target_seqs 1 > hits.tsv
+# 2. Crear script temporal en Python
+TEMP_SCRIPT=$(mktemp)
 
-# Extraer secuencias con seqkit (requiere seqkit)
-cut -f1 hits.tsv | sort | uniq | seqkit grep -f - "$GENOMAS" > "$SALIDA"
+cat << EOF > "$TEMP_SCRIPT"
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 
-# Limpiar
-rm tempdb.* hits.tsv
+fasta_input = "$INPUT_FASTA"
+gene_name = "$GENE_NAME"
+consenso = "$CONSENSO".upper()
+umbral_identidad = 0.7
 
-echo "Archivo generado: $SALIDA"
+def porcentaje_identidad(seq1, seq2):
+    min_len = min(len(seq1), len(seq2))
+    matches = sum(a == b for a, b in zip(seq1[:min_len], seq2[:min_len]))
+    return matches / min_len
+
+resultados = []
+for record in SeqIO.parse(fasta_input, "fasta"):
+    secuencia = str(record.seq).upper()
+    for i in range(len(secuencia) - len(consenso) + 1):
+        fragmento = secuencia[i:i+len(consenso)]
+        identidad = porcentaje_identidad(consenso, fragmento)
+        if identidad >= umbral_identidad:
+            nuevo_record = record[:0]
+            nuevo_record.seq = Seq(fragmento)
+            resultados.append(nuevo_record)
+            break
+
+salida = f"{gene_name}_reference.fasta"
+if resultados:
+    SeqIO.write(resultados, salida, "fasta")
+    print(f"✅ Se guardaron {len(resultados)} secuencias en '{salida}'")
+else:
+    print("❌ No se encontraron secuencias con ≥70% identidad.")
+EOF
+
+# 3. Ejecutar el script Python
+python3 "$TEMP_SCRIPT"
+
+# 4. Limpiar
+rm "$TEMP_SCRIPT"
