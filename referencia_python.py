@@ -2,56 +2,56 @@
 
 from Bio import SeqIO
 from Bio.Seq import Seq
-import argparse
-import os
+from Bio.SeqRecord import SeqRecord
+
+# --------------------------
+# FUNCIONES
+# --------------------------
 
 def porcentaje_identidad(seq1, seq2):
-    """Calcula el porcentaje de identidad simple (por alineamiento local básico)"""
-    l1, l2 = len(seq1), len(seq2)
-    min_len = min(l1, l2)
+    min_len = min(len(seq1), len(seq2))
     matches = sum(a == b for a, b in zip(seq1[:min_len], seq2[:min_len]))
     return matches / min_len
 
-def buscar_similares(consenso, fasta_input, umbral=0.70):
+def buscar_amplicones(fasta_input, consenso, gene_name, umbral_identidad=0.7):
     resultados = []
+    consenso = consenso.upper()
+
     for record in SeqIO.parse(fasta_input, "fasta"):
         secuencia = str(record.seq).upper()
-        encontrado = False
         for i in range(len(secuencia) - len(consenso) + 1):
             fragmento = secuencia[i:i+len(consenso)]
             identidad = porcentaje_identidad(consenso, fragmento)
-            if identidad >= umbral:
-                nuevo_record = record[:0]  # copia del encabezado
+            if identidad >= umbral_identidad:
+                nuevo_record = record[:0]
                 nuevo_record.seq = Seq(fragmento)
                 resultados.append(nuevo_record)
-                encontrado = True
-                break  # solo toma la primera coincidencia
-        if not encontrado:
-            continue
+                break  # solo una coincidencia por secuencia
     return resultados
 
+# --------------------------
+# INTERFAZ DE CONSOLA
+# --------------------------
+
 def main():
-    parser = argparse.ArgumentParser(description="Extrae fragmentos similares a una secuencia consenso")
-    parser.add_argument("-i", "--input", required=True, help="Archivo FASTA con las secuencias (genomas/CDS)")
-    parser.add_argument("-s", "--seq", required=True, help="Secuencia consenso (texto o archivo)")
-    parser.add_argument("-g", "--gene", required=True, help="Nombre del gen para nombrar el archivo de salida")
-    parser.add_argument("-t", "--threshold", type=float, default=0.7, help="Umbral de identidad (default: 0.7)")
-    args = parser.parse_args()
+    print("🔍 BUSCADOR DE AMPLICONES POR IDENTIDAD\n")
 
-    if os.path.isfile(args.seq):
-        with open(args.seq) as f:
-            consenso = f.read().strip().upper()
-    else:
-        consenso = args.seq.strip().upper()
+    # Entrada de usuario
+    fasta_input = input("📂 Nombre del archivo FASTA de entrada: ").strip()
+    gene_name = input("🧬 Nombre del amplicón (gen): ").strip()
+    consenso = input("🧬 Ingresa la secuencia consenso (una sola línea): ").strip()
 
-    resultados = buscar_similares(consenso, args.input, umbral=args.threshold)
+    # Buscar amplicones
+    print("\n⏳ Buscando coincidencias con ≥70% identidad...")
+    resultados = buscar_amplicones(fasta_input, consenso, gene_name)
 
-    salida = f"{args.gene}_reference.fasta"
+    # Guardar resultados
+    salida = f"{gene_name}_reference.fasta"
     if resultados:
         SeqIO.write(resultados, salida, "fasta")
-        print(f"Se guardaron {len(resultados)} secuencias en {salida}")
+        print(f"✅ Se guardaron {len(resultados)} fragmentos en: {salida}")
     else:
-        print("No se encontraron secuencias con suficiente similitud.")
+        print("❌ No se encontraron secuencias con suficiente similitud.")
 
 if __name__ == "__main__":
     main()
